@@ -1,0 +1,7 @@
+- main:
+  - heading "Blank page" [level=1]
+- link "Made with Ternary (EDITED)":
+  - /url: https://ternary-pre-domain.vercel.app/
+- alert
+- button "Open Next.js Dev Tools":
+  - img

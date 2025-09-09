@@ -1,0 +1,4 @@
+- paragraph: "[dump] tc=gateway-simple"
+- paragraph: "[[ternary-dump-path=*]]"
+- button "Retry":
+  - img

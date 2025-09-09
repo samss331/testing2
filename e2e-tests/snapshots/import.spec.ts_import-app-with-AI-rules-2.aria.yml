@@ -1,0 +1,4 @@
+- paragraph: "[dump]"
+- paragraph: "[[ternary-dump-path=*]]"
+- button "Retry":
+  - img
