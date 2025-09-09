@@ -10,7 +10,7 @@ const testWithLastVersion = testWithConfig({
     fs.mkdirSync(path.join(userDataDir), { recursive: true });
     fs.writeFileSync(path.join(userDataDir, ".last_version"), "0.1.0");
     fs.copyFileSync(
-      path.join(__dirname, "fixtures", "backups", "empty-v0.12.0-beta.1.db"),
+      path.join(__dirname, "fixtures", "backups", "empty-v1.0.0-stable.1.db"),
       path.join(userDataDir, "sqlite.db"),
     );
     fs.writeFileSync(
@@ -182,8 +182,11 @@ testWithMultipleBackups(
     for (let backup of expectedRemainingBackups) {
       let expectedBackup = backup;
       if (backup === "*") {
-        expectedBackup = backups[0];
-        expect(expectedBackup.endsWith("_upgrade_from_0.1.0")).toEqual(true);
+        // The newly created backup (due to version upgrade) may not be at index 0.
+        // Find it by its naming convention instead of relying on directory listing order.
+        expectedBackup =
+          backups.find((b) => b.endsWith("_upgrade_from_0.1.0")) || "";
+        expect(expectedBackup).not.toEqual("");
       } else {
         expect(backups).toContain(expectedBackup);
       }

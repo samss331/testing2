@@ -1,7 +1,7 @@
 {
   "name": "ternary",
   "productName": "ternary",
-  "version": "1.1.0",
+  "version": "1.0.1-stable.1",
   "description": "Free, local, open-source AI app builder",
   "main": ".vite/build/main.js",
   "repository": {
