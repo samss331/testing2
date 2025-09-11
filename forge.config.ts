@@ -104,8 +104,8 @@ const config: ForgeConfig = {
       name: "@electron-forge/publisher-github",
       config: {
         repository: {
-          owner: "ternarystudio",
-          name: "ternary",
+          owner: "samss331",
+          name: "testing2",
         },
         draft: true,
         force: true,
