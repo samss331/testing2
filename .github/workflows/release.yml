@@ -11,6 +11,9 @@ on:
 jobs:
   build:
     environment: release
+    env:
+      # Default to unsigned builds so publishing works without paid certs
+      UNSIGNED_BUILD: true
     strategy:
       # Uncomment max-parallel to prevent race condition (where multiple releases are
       # created concurrently). Typically though, we'll create a release manually ahead of time
@@ -19,7 +22,7 @@ jobs:
       matrix:
         os: [
             { name: "windows", image: "windows-latest" },
-            # See https://github.com/ternarystudio/ternary/issues/96
+            # See https://github.com/ternary-sh/ternary/issues/96
             { name: "linux", image: "ubuntu-22.04" },
             { name: "macos-intel", image: "macos-13" },
             { name: "macos", image: "macos-latest" },
@@ -34,19 +37,19 @@ jobs:
           node-version: 20
       - run: npm ci
       - name: add macos cert
-        if: contains(matrix.os.name, 'macos')
+        if: contains(matrix.os.name, 'macos') && env.UNSIGNED_BUILD != 'true'
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
           MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: chmod +x tools/add-macos-cert.sh && . ./tools/add-macos-cert.sh
       # Windows only
       - name: Set up certificate
-        if: contains(matrix.os.name, 'windows')
+        if: contains(matrix.os.name, 'windows') && env.UNSIGNED_BUILD != 'true'
         run: |
           echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 --decode > /d/Certificate_pkcs12.p12
         shell: bash
       - name: Set variables
-        if: contains(matrix.os.name, 'windows')
+        if: contains(matrix.os.name, 'windows') && env.UNSIGNED_BUILD != 'true'
         id: variables
         run: |
           echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV" 
@@ -55,10 +58,10 @@ jobs:
           echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
         shell: bash
       - name: Code signing with Software Trust Manager
-        if: contains(matrix.os.name, 'windows')
+        if: contains(matrix.os.name, 'windows') && env.UNSIGNED_BUILD != 'true'
         uses: digicert/ssm-code-signing@v1.1.0
       - name: Sync certificate (Windows)
-        if: contains(matrix.os.name, 'windows')
+        if: contains(matrix.os.name, 'windows') && env.UNSIGNED_BUILD != 'true'
         run: |
           smctl windows certsync --keypair-alias=${{ secrets.DIGICERT_KEYPAIR_ALIAS }}
         shell: bash
@@ -66,6 +69,8 @@ jobs:
       - name: Publish app
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
+          # Tell Forge to skip signing/notarization on all platforms
+          UNSIGNED_BUILD: ${{ env.UNSIGNED_BUILD }}
           SM_CODE_SIGNING_CERT_SHA1_HASH: ${{ secrets.SM_CODE_SIGNING_CERT_SHA1_HASH }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
