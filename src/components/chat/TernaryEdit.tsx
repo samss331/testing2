@@ -52,7 +52,7 @@ export const TernaryEdit: React.FC<TernaryEditProps> = ({
           <div className="flex items-center">
             <Rabbit size={16} />
             <span className="bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded ml-1 font-medium">
-              Turbo Edit
+              Edit Block
             </span>
           </div>
           {fileName && (

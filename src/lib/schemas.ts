@@ -150,6 +150,21 @@ export const ExperimentsSchema = z.object({
 });
 export type Experiments = z.infer<typeof ExperimentsSchema>;
 
+// Device linking based App Authentication (from website)
+export const AppAuthFeatureFlagsSchema = z.object({
+  pro: z.boolean().optional(),
+});
+
+export const AppAuthSchema = z.object({
+  token: SecretSchema.optional(),
+  deviceId: z.string().optional(),
+  email: z.string().optional(),
+  plan: z.string().optional(),
+  status: z.string().optional(),
+  featureFlags: AppAuthFeatureFlagsSchema.optional(),
+});
+export type AppAuth = z.infer<typeof AppAuthSchema>;
+
 export const TernaryProBudgetSchema = z.object({
   budgetResetAt: z.string(),
   maxBudget: z.number(),
@@ -194,6 +209,7 @@ export const UserSettingsSchema = z.object({
   vercelAccessToken: SecretSchema.optional(),
   supabase: SupabaseSchema.optional(),
   neon: NeonSchema.optional(),
+  appAuth: AppAuthSchema.optional(),
   autoApproveChanges: z.boolean().optional(),
   telemetryConsent: z.enum(["opted_in", "opted_out", "unset"]).optional(),
   telemetryUserId: z.string().optional(),
@@ -203,7 +219,6 @@ export const UserSettingsSchema = z.object({
   lastShownReleaseNotesVersion: z.string().optional(),
   maxChatTurnsInContext: z.number().optional(),
   thinkingBudget: z.enum(["low", "medium", "high"]).optional(),
-  enableProLazyEditsMode: z.boolean().optional(),
   enableProSmartFilesContextMode: z.boolean().optional(),
   proSmartContextOption: z.enum(["balanced", "conservative"]).optional(),
   selectedTemplateId: z.string(),
@@ -236,7 +251,8 @@ export const UserSettingsSchema = z.object({
 export type UserSettings = z.infer<typeof UserSettingsSchema>;
 
 export function isTernaryProEnabled(settings: UserSettings): boolean {
-  return settings.enableTernaryPro === true && hasTernaryProKey(settings);
+  // Website-linked entitlement only (device linking). Legacy API key is ignored for Pro features.
+  return settings.appAuth?.featureFlags?.pro === true;
 }
 
 export function hasTernaryProKey(settings: UserSettings): boolean {

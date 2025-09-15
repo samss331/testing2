@@ -53,17 +53,6 @@ export function Message({ spans }: MessageConfig) {
 }
 
 // Predefined message configurations
-export const TURBO_EDITS_PROMO_MESSAGE: MessageConfig = {
-  spans: [
-    { type: "text", content: "Tired of waiting on AI?" },
-    {
-      type: "link",
-      content: " Get Ternary Pro",
-      url: "https://ternary-pre-domain.vercel.app/pro#ai",
-    },
-    { type: "text", content: " for faster edits with Turbo Edits." },
-  ],
-};
 
 export const SMART_CONTEXT_PROMO_MESSAGE: MessageConfig = {
   spans: [
@@ -202,7 +191,6 @@ export const GITHUB_TIP: MessageConfig = {
 };
 // Array of all available messages for rotation
 const ALL_MESSAGES = [
-  TURBO_EDITS_PROMO_MESSAGE,
   SMART_CONTEXT_PROMO_MESSAGE,
   DIFFERENT_MODEL_TIP,
   REDDIT_TIP,

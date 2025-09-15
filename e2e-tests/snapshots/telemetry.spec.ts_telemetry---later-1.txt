@@ -8,7 +8,6 @@
   "telemetryUserId": "[UUID]",
   "hasRunBefore": true,
   "experiments": {},
-  "enableProLazyEditsMode": true,
   "enableProSmartFilesContextMode": true,
   "selectedTemplateId": "react",
   "selectedChatMode": "build",

@@ -64,6 +64,8 @@ import { parseAppMentions } from "@/shared/parse_mention_apps";
 import { prompts as promptsTable } from "../../db/schema";
 import { inArray } from "drizzle-orm";
 import { replacePromptReference } from "../utils/replacePromptReference";
+import { selectSmartContext } from "../utils/smart_context_engine";
+import { isTernaryProEnabled } from "@/lib/schemas";
 
 type AsyncIterableStream<T> = AsyncIterable<T> & ReadableStream<T>;
 
@@ -409,10 +411,15 @@ ${componentSnippet}
         const mentionedAppNames = parseAppMentions(req.prompt);
 
         // Extract codebase for current app
-        const { formattedOutput: codebaseInfo, files } = await extractCodebase({
+        const { formattedOutput: initialCodebaseInfo } = await extractCodebase({
           appPath,
           chatContext,
         });
+
+        // Prepare variables for potential Smart Context refinement later
+        let codebaseInfo = initialCodebaseInfo;
+        let smartContextWasApplied = false;
+        let smartContextSelectedPaths: string[] = [];
 
         // Extract codebases for mentioned apps
         const mentionedAppsCodebases = await extractMentionedAppsCodebases(
@@ -444,10 +451,12 @@ ${componentSnippet}
           "estimated tokens",
           codebaseInfo.length / 4,
         );
+        // Use user-selected model as-is; Smart Auto disabled
+        const resolvedModel = settings.selectedModel;
+
         const { modelClient, isEngineEnabled } = await getModelClient(
-          settings.selectedModel,
+          resolvedModel,
           settings,
-          files,
         );
 
         // Prepare message history for the AI
@@ -577,8 +586,7 @@ This conversation includes one or more image attachments. When the user uploads 
         }
 
         const codebasePrefix = isEngineEnabled
-          ? // No codebase prefix if engine is set, we will take of it there.
-            []
+          ? []
           : ([
               {
                 role: "user",
@@ -602,6 +610,59 @@ This conversation includes one or more image attachments. When the user uploads 
               },
             ] as const)
           : [];
+
+        // Apply local Smart Context selection now that limitedMessageHistory is available
+        if (
+          isTernaryProEnabled(settings) &&
+          settings.enableProSmartFilesContextMode
+        ) {
+          try {
+            const recentMessages = limitedMessageHistory.map((m) => ({
+              role: m.role,
+              content:
+                typeof (m as any).content === "string"
+                  ? (m as any).content
+                  : "",
+            }));
+            const smart = await selectSmartContext({
+              appPath,
+              chatContext,
+              promptContext: {
+                userPrompt: req.prompt,
+                recentMessages,
+              },
+              mode: settings.proSmartContextOption ?? "balanced",
+              model: settings.selectedModel,
+              settings,
+            });
+            const formatSelected = (
+              selected: { path: string; content: string; force?: boolean }[],
+            ) =>
+              selected
+                .map(
+                  (f) => `<ternary-file path="${f.path}">
+${f.content}
+</ternary-file>
+`,
+                )
+                .join("");
+            codebaseInfo = formatSelected(smart.selectedFiles);
+            smartContextWasApplied = true;
+            smartContextSelectedPaths = smart.selectedFiles.map((f) => f.path);
+            logger.log(
+              "Smart Context selected",
+              smart.debug.selectedCount,
+              "/",
+              smart.debug.totalCandidates,
+              "files",
+            );
+          } catch (e) {
+            logger.error(
+              "Local Smart Context selection failed, falling back to full codebase:",
+              e,
+            );
+          }
+        }
 
         let chatMessages: ModelMessage[] = [
           ...codebasePrefix,
@@ -669,9 +730,6 @@ This conversation includes one or more image attachments. When the user uploads 
           }
           // Build provider options with correct Google/Vertex thinking config gating
           const providerOptions: Record<string, any> = {
-            "ternary-engine": {
-              ternaryRequestId,
-            },
             "ternary-gateway": getExtraProviderOptions(
               modelClient.builtinProviderId,
               settings,
@@ -686,6 +744,7 @@ This conversation includes one or more image attachments. When the user uploads 
           const providerId = modelClient.builtinProviderId;
           const isVertex = providerId === "vertex";
           const isGoogle = providerId === "google";
+          const isAnthropic = providerId === "anthropic";
           const isPartnerModel = selectedModelName.includes("/");
           const isGeminiModel = selectedModelName.startsWith("gemini");
           const isFlashLite = selectedModelName.includes("flash-lite");
@@ -709,8 +768,13 @@ This conversation includes one or more image attachments. When the user uploads 
           }
 
           return streamText({
-            maxOutputTokens: await getMaxTokens(settings.selectedModel),
-            temperature: await getTemperature(settings.selectedModel),
+            headers: isAnthropic
+              ? {
+                  "anthropic-beta": "context-1m-2025-08-07",
+                }
+              : undefined,
+            maxOutputTokens: await getMaxTokens(resolvedModel),
+            temperature: await getTemperature(resolvedModel),
             maxRetries: 2,
             model: modelClient.model,
             providerOptions,
@@ -775,6 +839,14 @@ This conversation includes one or more image attachments. When the user uploads 
           return fullResponse;
         };
 
+        // If Smart Context was applied, emit a visible UI tag before the model starts streaming.
+        if (smartContextWasApplied && smartContextSelectedPaths.length > 0) {
+          const filesAttr = smartContextSelectedPaths.join(",");
+          const pendingTag = `<ternary-codebase-context files="${filesAttr}" state="pending"></ternary-codebase-context>\n`;
+          fullResponse = pendingTag;
+          fullResponse = await processResponseChunkUpdate({ fullResponse });
+        }
+
         // When calling streamText, the messages need to be properly formatted for mixed content
         const { fullStream } = await simpleStreamText({
           chatMessages,
@@ -791,6 +863,19 @@ This conversation includes one or more image attachments. When the user uploads 
             processResponseChunkUpdate,
           });
           fullResponse = result.fullResponse;
+
+          // If we showed a pending Smart Context tag earlier, mark it as finished now and push an update
+          if (smartContextWasApplied) {
+            const finished = fullResponse.replace(
+              /<ternary-codebase-context([^>]*)state="pending"/,
+              '<ternary-codebase-context$1state="finished"',
+            );
+            if (finished !== fullResponse) {
+              fullResponse = await processResponseChunkUpdate({
+                fullResponse: finished,
+              });
+            }
+          }
 
           if (
             !abortController.signal.aborted &&
@@ -831,6 +916,7 @@ This conversation includes one or more image attachments. When the user uploads 
               }
             }
           }
+
           const addDependencies = getTernaryAddDependencyTags(fullResponse);
           if (
             !abortController.signal.aborted &&
@@ -887,16 +973,16 @@ ${problemReport.problems
                   writeTags,
                 });
 
-                const { formattedOutput: codebaseInfo, files } =
-                  await extractCodebase({
+                const { formattedOutput: codebaseInfo } = await extractCodebase(
+                  {
                     appPath,
                     chatContext,
                     virtualFileSystem,
-                  });
+                  },
+                );
                 const { modelClient } = await getModelClient(
                   settings.selectedModel,
                   settings,
-                  files,
                 );
 
                 const { fullStream } = await simpleStreamText({

@@ -2,11 +2,10 @@ import { testSkipIfWindows } from "./helpers/test_helper";
 
 testSkipIfWindows("claude 4 sonnet", async ({ po }) => {
   await po.setUpTernaryPro();
-  // Disable the pro modes so it routes to gateway.
+  // Disable Smart Context so it routes to gateway without Pro context features.
   const proModesDialog = await po.openProModesDialog({
     location: "home-chat-input-container",
   });
-  await proModesDialog.toggleTurboEdits();
   await proModesDialog.setSmartContextMode("off");
   await proModesDialog.close();
 

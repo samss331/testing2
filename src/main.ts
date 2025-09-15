@@ -36,6 +36,59 @@ if (started) {
   app.quit();
 }
 
+async function fetchAndUpdateAppAuthFromToken(
+  token: string,
+  deviceId?: string,
+) {
+  const settings = readSettings();
+  const base =
+    process.env.NEXT_PUBLIC_WEBSITE_BASE ||
+    process.env.VERCEL_URL ||
+    "https://ternary-pre-domain.vercel.app";
+  const origin = base.startsWith("http") ? base : base ? `https://${base}` : "";
+  const meUrl = `${origin}/api/app/me`;
+  const res = await fetch(meUrl, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GET /api/app/me failed (${res.status}): ${body}`);
+  }
+  const json = (await res.json()) as any;
+  writeSettings({
+    appAuth: {
+      token: { value: token },
+      deviceId: json.device_id ?? deviceId ?? settings.appAuth?.deviceId,
+      email: json.email ?? settings.appAuth?.email,
+      plan: json.plan ?? settings.appAuth?.plan,
+      status: json.status ?? settings.appAuth?.status,
+      featureFlags: json.feature_flags ?? settings.appAuth?.featureFlags,
+    },
+    enableTernaryPro: Boolean(json?.feature_flags?.pro === true),
+  });
+  logger.info(
+    "Refreshed app auth from token",
+    json.email,
+    json.plan,
+    json.status,
+  );
+}
+
+async function handleDeviceLinkCallback({
+  token,
+  deviceId,
+}: {
+  token: string;
+  deviceId?: string;
+}): Promise<void> {
+  // Persist token immediately so it survives restarts
+  writeSettings({
+    appAuth: { token: { value: token }, deviceId },
+  });
+  await fetchAndUpdateAppAuthFromToken(token, deviceId);
+}
+
 // https://www.electronjs.org/docs/latest/tutorial/launch-app-from-url-in-another-app#main-process-mainjs
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
@@ -60,6 +113,27 @@ export async function onReady() {
   initializeDatabase();
   const settings = readSettings();
   await onFirstRunMaybe(settings);
+
+  // Attempt to refresh appAuth from website if a device token exists
+  let linkRefreshError: any = null;
+  try {
+    const token = settings.appAuth?.token?.value;
+    if (token) {
+      await fetchAndUpdateAppAuthFromToken(token, settings.appAuth?.deviceId);
+    }
+  } catch (err) {
+    linkRefreshError = err;
+    logger.warn("Device link refresh failed on startup:", err);
+    // Mark as stale and disable Pro so UI doesn't assume entitlement
+    writeSettings({
+      appAuth: {
+        ...readSettings().appAuth,
+        status: "stale",
+      },
+      enableTernaryPro: false,
+    });
+  }
+
   createWindow();
 
   logger.info("Auto-update enabled=", settings.enableAutoUpdate);
@@ -78,6 +152,13 @@ export async function onReady() {
         host,
       },
     }); // additional configuration options available
+  }
+  // Notify renderer if link refresh failed
+  if (linkRefreshError) {
+    mainWindow?.webContents.send("deep-link-received", {
+      type: "link/refresh-failed",
+      message: String(linkRefreshError),
+    });
   }
 }
 
@@ -194,6 +275,33 @@ function handleDeepLinkReturn(url: string) {
     parsed = new URL(url);
   } catch {
     log.info("Invalid deep link URL", url);
+    return;
+  }
+  // ternary://link/callback?status=ok&token=...&device_id=...
+  if (parsed.hostname === "link" && parsed.pathname === "/callback") {
+    const status = parsed.searchParams.get("status");
+    const token = parsed.searchParams.get("token");
+    const deviceId = parsed.searchParams.get("device_id");
+    if (status !== "ok" || !token) {
+      dialog.showErrorBox(
+        "Invalid URL",
+        "Expected status=ok and token for device linking callback",
+      );
+      return;
+    }
+    void handleDeviceLinkCallback({ token, deviceId: deviceId || undefined })
+      .then(() => {
+        mainWindow?.webContents.send("deep-link-received", {
+          type: "link/callback",
+        });
+      })
+      .catch((e) => {
+        logger.error("Error handling device link callback", e);
+        dialog.showErrorBox(
+          "Link Failed",
+          `There was an error linking this device: ${String(e)}`,
+        );
+      });
     return;
   }
 

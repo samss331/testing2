@@ -4,6 +4,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createXai } from "@ai-sdk/xai";
 import { createVertex as createGoogleVertex } from "@ai-sdk/google-vertex";
 import { azure } from "@ai-sdk/azure";
+import { LanguageModelV2 } from "@ai-sdk/provider";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
@@ -14,22 +15,26 @@ import type {
 } from "../../lib/schemas";
 import { getEnvVar } from "./read_env";
 import log from "electron-log";
+import { FREE_OPENROUTER_MODEL_NAMES } from "../shared/language_model_constants";
 import { getLanguageModelProviders } from "../shared/language_model_helpers";
 import { LanguageModelProvider } from "../ipc_types";
-import { createTernaryEngine } from "./llm_engine_provider";
+// Engine provider removed from runtime path; local engines handle Pro features now
 
 import { LM_STUDIO_BASE_URL } from "./lm_studio_utils";
-import { LanguageModel } from "ai";
 import { createOllamaProvider } from "./ollama_provider";
 import { getOllamaApiUrl } from "../handlers/local_model_ollama_handler";
+import { createFallback } from "./fallback_ai_model";
 
-const ternaryEngineUrl = process.env.TERNARY_ENGINE_URL;
 const ternaryGatewayUrl = process.env.TERNARY_GATEWAY_URL;
 
 const AUTO_MODELS = [
   {
     provider: "google",
     name: "gemini-2.5-flash",
+  },
+  {
+    provider: "openrouter",
+    name: "qwen/qwen3-coder:free",
   },
   {
     provider: "anthropic",
@@ -42,7 +47,7 @@ const AUTO_MODELS = [
 ];
 
 export interface ModelClient {
-  model: LanguageModel;
+  model: LanguageModelV2;
   builtinProviderId?: string;
 }
 
@@ -62,6 +67,12 @@ export async function getModelClient(
 }> {
   const allProviders = await getLanguageModelProviders();
 
+  // Best-effort usage to satisfy lints and preserve forward-compat for callers that may pass files
+  // without affecting current behavior.
+  if (files && files.length) {
+    logger.debug(`getModelClient received ${files.length} file(s) for context`);
+  }
+
   const ternaryApiKey = settings.providerSettings?.auto?.apiKey?.value;
 
   // --- Handle specific provider ---
@@ -73,59 +84,26 @@ export async function getModelClient(
 
   // Handle Ternary Pro override
   if (ternaryApiKey && settings.enableTernaryPro) {
-    // Check if the selected provider supports Ternary Pro (has a gateway prefix) OR
-    // we're using local engine.
-    // IMPORTANT: some providers like OpenAI have an empty string gateway prefix,
-    // so we do a nullish and not a truthy check here.
-    if (providerConfig.gatewayPrefix != null || ternaryEngineUrl) {
-      const isEngineEnabled =
-        settings.enableProSmartFilesContextMode ||
-        settings.enableProLazyEditsMode;
-      const provider = isEngineEnabled
-        ? createTernaryEngine({
-            apiKey: ternaryApiKey,
-            baseURL: ternaryEngineUrl ?? "https://engine.ternary.sh/v1",
-            originalProviderId: model.provider,
-            ternaryOptions: {
-              enableLazyEdits:
-                settings.selectedChatMode === "ask"
-                  ? false
-                  : settings.enableProLazyEditsMode,
-              enableSmartFilesContext: settings.enableProSmartFilesContextMode,
-              // Keep in sync with getCurrentValue in ProModeSelector.tsx
-              smartContextMode: settings.proSmartContextOption ?? "balanced",
-            },
-            settings,
-          })
-        : createOpenAICompatible({
-            name: "ternary-gateway",
-            apiKey: ternaryApiKey,
-            baseURL: ternaryGatewayUrl ?? "https://llm-gateway.ternary.sh/v1",
-          });
+    // We keep Gateway for Pro credits and perform Smart Context/Turbo Edits locally.
+    // IMPORTANT: some providers like OpenAI have an empty gateway prefix, so we check nullish.
+    if (providerConfig.gatewayPrefix != null || ternaryGatewayUrl) {
+      const isEngineEnabled = false; // Force engine off; local processing will handle Pro modes
+      const provider = createOpenAICompatible({
+        name: "ternary-gateway",
+        apiKey: ternaryApiKey,
+        baseURL: ternaryGatewayUrl ?? "https://llm-gateway.ternary.sh/v1",
+      });
 
       logger.info(
         `\x1b[1;97;44m Using Ternary Pro API key for model: ${model.name}. engine_enabled=${isEngineEnabled} \x1b[0m`,
       );
-      if (isEngineEnabled) {
-        logger.info(
-          `\x1b[1;30;42m Using Ternary Pro engine: ${ternaryEngineUrl ?? "<prod>"} \x1b[0m`,
-        );
-      } else {
-        logger.info(
-          `\x1b[1;30;43m Using Ternary Pro gateway: ${ternaryGatewayUrl ?? "<prod>"} \x1b[0m`,
-        );
-      }
+      logger.info(
+        `\x1b[1;30;43m Using Ternary Pro gateway: ${ternaryGatewayUrl ?? "<prod>"} \x1b[0m`,
+      );
       // Do not use free variant (for openrouter).
       const modelName = model.name.split(":free")[0];
       const autoModelClient = {
-        model: provider(
-          `${providerConfig.gatewayPrefix || ""}${modelName}`,
-          isEngineEnabled
-            ? {
-                files,
-              }
-            : undefined,
-        ),
+        model: provider(`${providerConfig.gatewayPrefix || ""}${modelName}`),
         builtinProviderId: model.provider,
       };
 
@@ -142,6 +120,30 @@ export async function getModelClient(
   }
   // Handle 'auto' provider by trying each model in AUTO_MODELS until one works
   if (model.provider === "auto") {
+    if (model.name === "free") {
+      const openRouterProvider = allProviders.find(
+        (p) => p.id === "openrouter",
+      );
+      if (!openRouterProvider) {
+        throw new Error("OpenRouter provider not found");
+      }
+      return {
+        modelClient: {
+          model: createFallback({
+            models: FREE_OPENROUTER_MODEL_NAMES.map(
+              (name: string) =>
+                getRegularModelClient(
+                  { provider: "openrouter", name },
+                  settings,
+                  openRouterProvider,
+                ).modelClient.model,
+            ),
+          }),
+          builtinProviderId: "openrouter",
+        },
+        isEngineEnabled: false,
+      };
+    }
     for (const autoModel of AUTO_MODELS) {
       const providerInfo = allProviders.find(
         (p) => p.id === autoModel.provider,

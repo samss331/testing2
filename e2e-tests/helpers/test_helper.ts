@@ -78,10 +78,6 @@ class ProModesDialog {
       })
       .click();
   }
-
-  async toggleTurboEdits() {
-    await this.page.getByRole("switch", { name: "Turbo Edits" }).click();
-  }
 }
 
 class GitHubConnector {
@@ -258,6 +254,41 @@ export class PageObject {
       await this.toggleAutoApprove();
     }
     await this.setUpTernaryProvider();
+    await this.goToAppsTab();
+  }
+
+  /**
+   * Simulate a device-linked Pro account for tests without hitting the website.
+   * Writes user-settings.json with an appAuth token and featureFlags.pro=true,
+   * and flips enableTernaryPro=true so UI toggles are available.
+   */
+  async setUpDeviceLinkedPro({
+    email = "test@pro.local",
+  }: { email?: string } = {}) {
+    await this.baseSetup();
+    // Ensure settings file exists by visiting Settings once
+    await this.goToSettingsTab();
+    const settingsPath = path.join(this.userDataDir, "user-settings.json");
+    let json: any = {};
+    try {
+      if (fs.existsSync(settingsPath)) {
+        json = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+      }
+    } catch {
+      // ignore, start fresh
+      json = {};
+    }
+    json.appAuth = {
+      ...json.appAuth,
+      token: { value: json.appAuth?.token?.value || "test-device-token" },
+      deviceId: json.appAuth?.deviceId || "test-device-id",
+      email,
+      plan: "Pro",
+      status: "active",
+      featureFlags: { ...json.appAuth?.featureFlags, pro: true },
+    };
+    json.enableTernaryPro = true;
+    fs.writeFileSync(settingsPath, JSON.stringify(json, null, 2));
     await this.goToAppsTab();
   }
 
@@ -1009,6 +1040,7 @@ export class PageObject {
 
 interface ElectronConfig {
   preLaunchHook?: ({ userDataDir }: { userDataDir: string }) => Promise<void>;
+  showSetupScreen?: boolean;
 }
 
 // From https://github.com/microsoft/playwright/issues/8208#issuecomment-1435475930
@@ -1071,8 +1103,10 @@ export const test = base.extend<{
       process.env.TERNARY_ENGINE_URL = "http://localhost:3500/engine/v1";
       process.env.TERNARY_GATEWAY_URL = "http://localhost:3500/gateway/v1";
       process.env.E2E_TEST_BUILD = "true";
-      // This is just a hack to avoid the AI setup screen.
-      process.env.OPENAI_API_KEY = "sk-test";
+      if (!electronConfig.showSetupScreen) {
+        // This is just a hack to avoid the AI setup screen.
+        process.env.OPENAI_API_KEY = "sk-test";
+      }
       const baseTmpDir = os.tmpdir();
       const userDataDir = path.join(
         baseTmpDir,
@@ -1152,6 +1186,17 @@ export const test = base.extend<{
 });
 
 export function testWithConfig(config: ElectronConfig) {
+  return test.extend({
+    electronConfig: async ({}, use) => {
+      await use(config);
+    },
+  });
+}
+
+export function testWithConfigSkipIfWindows(config: ElectronConfig) {
+  if (os.platform() === "win32") {
+    return test.skip;
+  }
   return test.extend({
     electronConfig: async ({}, use) => {
       await use(config);

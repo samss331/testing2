@@ -18,7 +18,6 @@
   "experiments": {},
   "lastShownReleaseNotesVersion": "[scrubbed]",
   "thinkingBudget": "medium",
-  "enableProLazyEditsMode": true,
   "enableProSmartFilesContextMode": true,
   "selectedTemplateId": "react",
   "selectedChatMode": "build",

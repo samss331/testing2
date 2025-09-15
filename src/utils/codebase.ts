@@ -46,6 +46,7 @@ const ALLOWED_EXTENSIONS = [
   // Edge cases
   // https://github.com/ternarystudio/ternary/issues/880
   ".py",
+  ".php",
 ];
 
 // Directories to always exclude

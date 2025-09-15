@@ -9,7 +9,6 @@
   "hasRunBefore": true,
   "experiments": {},
   "lastShownReleaseNotesVersion": "[scrubbed]",
-  "enableProLazyEditsMode": true,
   "enableProSmartFilesContextMode": true,
   "selectedTemplateId": "react",
   "selectedChatMode": "build",

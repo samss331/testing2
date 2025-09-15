@@ -17,7 +17,6 @@
   "enableTernaryPro": true,
   "experiments": {},
   "lastShownReleaseNotesVersion": "[scrubbed]",
-  "enableProLazyEditsMode": true,
   "enableProSmartFilesContextMode": true,
   "proSmartContextOption": "balanced",
   "selectedTemplateId": "react",

@@ -14,16 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Sparkles, Info } from "lucide-react";
 import { useSettings } from "@/hooks/useSettings";
 import { IpcClient } from "@/ipc/ipc_client";
-import { hasTernaryProKey, type UserSettings } from "@/lib/schemas";
+import { isTernaryProEnabled, type UserSettings } from "@/lib/schemas";
 
 export function ProModeSelector() {
   const { settings, updateSettings } = useSettings();
-
-  const toggleLazyEdits = () => {
-    updateSettings({
-      enableProLazyEditsMode: !settings?.enableProLazyEditsMode,
-    });
-  };
 
   const handleSmartContextChange = (
     newValue: "off" | "conservative" | "balanced",
@@ -52,8 +46,10 @@ export function ProModeSelector() {
     });
   };
 
-  const hasProKey = settings ? hasTernaryProKey(settings) : false;
-  const proModeTogglable = hasProKey && Boolean(settings?.enableTernaryPro);
+  // Entitlement from website (linked account) OR legacy API key
+  const hasEntitlement = settings ? isTernaryProEnabled(settings) : false;
+  const proModeTogglable =
+    hasEntitlement && Boolean(settings?.enableTernaryPro);
 
   return (
     <Popover>
@@ -81,7 +77,7 @@ export function ProModeSelector() {
             </h4>
             <div className="h-px bg-gradient-to-r from-primary/50 via-primary/20 to-transparent" />
           </div>
-          {!hasProKey && (
+          {!hasEntitlement && (
             <div className="text-sm text-center text-muted-foreground">
               <a
                 className="inline-flex items-center justify-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary shadow-sm transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -95,31 +91,24 @@ export function ProModeSelector() {
               </a>
             </div>
           )}
-          <div className="flex flex-col gap-5">
-            <SelectorRow
-              id="pro-enabled"
-              label="Enable Ternary Pro"
-              description="Use Ternary Pro AI credits"
-              tooltip="Uses Ternary Pro AI credits for the main AI model and Pro modes."
-              isTogglable={hasProKey}
-              settingEnabled={Boolean(settings?.enableTernaryPro)}
-              toggle={toggleProEnabled}
-            />
-            <SelectorRow
-              id="lazy-edits"
-              label="Turbo Edits"
-              description="Makes file edits faster and cheaper"
-              tooltip="Uses a faster, cheaper model to generate full file updates."
-              isTogglable={proModeTogglable}
-              settingEnabled={Boolean(settings?.enableProLazyEditsMode)}
-              toggle={toggleLazyEdits}
-            />
-            <SmartContextSelector
-              isTogglable={proModeTogglable}
-              settings={settings}
-              onValueChange={handleSmartContextChange}
-            />
-          </div>
+          {hasEntitlement && (
+            <div className="flex flex-col gap-5">
+              <SelectorRow
+                id="pro-enabled"
+                label="Enable Ternary Pro"
+                description="Use Ternary Pro AI credits"
+                tooltip="Uses Ternary Pro AI credits for the main AI model and Pro modes."
+                isTogglable={hasEntitlement}
+                settingEnabled={Boolean(settings?.enableTernaryPro)}
+                toggle={toggleProEnabled}
+              />
+              <SmartContextSelector
+                isTogglable={proModeTogglable}
+                settings={settings}
+                onValueChange={handleSmartContextChange}
+              />
+            </div>
+          )}
         </div>
       </PopoverContent>
     </Popover>

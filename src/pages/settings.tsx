@@ -24,6 +24,7 @@ import { AutoUpdateSwitch } from "@/components/AutoUpdateSwitch";
 import { ReleaseChannelSelector } from "@/components/ReleaseChannelSelector";
 import { NeonIntegration } from "@/components/NeonIntegration";
 import { RuntimeModeSelector } from "@/components/RuntimeModeSelector";
+import { AccountConnection } from "@/components/settings/AccountConnection";
 
 export default function SettingsPage() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
@@ -68,6 +69,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="space-y-6">
+          <AccountConnection />
           <GeneralSettings appVersion={appVersion} />
           <WorkflowSettings />
           <AISettings />

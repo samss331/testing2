@@ -21,6 +21,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { PreviewHeader } from "@/components/preview_panel/PreviewHeader";
+import { cn as classNames } from "@/lib/utils";
+import { v4 as uuidv4 } from "uuid";
 
 export const TitleBar = () => {
   const [selectedAppId] = useAtom(selectedAppIdAtom);
@@ -55,6 +57,9 @@ export const TitleBar = () => {
       if (lastDeepLink?.type === "ternary-pro-return") {
         await refreshSettings();
         showTernaryProSuccessDialog();
+      } else if (lastDeepLink?.type === "link/callback") {
+        // Device linking completed; refresh settings so header shows email/plan/status
+        await refreshSettings();
       }
     };
     handleDeepLink();
@@ -74,6 +79,11 @@ export const TitleBar = () => {
 
   const isTernaryPro = !!settings?.providerSettings?.auto?.apiKey?.value;
   const isTernaryProEnabled = Boolean(settings?.enableTernaryPro);
+  const linkedEmail = settings?.appAuth?.email;
+  const linkedPlan =
+    settings?.appAuth?.plan ??
+    (settings?.appAuth?.featureFlags?.pro ? "Pro" : "Free");
+  const isLinkedPro = settings?.appAuth?.featureFlags?.pro === true;
 
   return (
     <>
@@ -92,6 +102,11 @@ export const TitleBar = () => {
         >
           {displayText}
         </Button>
+        <AccountLinkStatus
+          email={linkedEmail}
+          plan={linkedPlan}
+          isPro={isLinkedPro}
+        />
         {isTernaryPro && (
           <TernaryProButton isTernaryProEnabled={isTernaryProEnabled} />
         )}
@@ -249,5 +264,55 @@ export function AICreditStatus({ userBudget }: { userBudget: UserBudgetInfo }) {
         </div>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+// Header account/link indicator and launcher for website device linking
+function AccountLinkStatus({
+  email,
+  plan,
+  isPro,
+}: {
+  email?: string;
+  plan?: string;
+  isPro?: boolean;
+}) {
+  const ipc = IpcClient.getInstance();
+
+  const startLink = async () => {
+    const state = uuidv4();
+    const returnUri = encodeURIComponent("ternary://link/callback");
+    const origin = "https://ternary-pre-domain.vercel.app";
+    const url = `${origin}/link/start?state=${encodeURIComponent(
+      state,
+    )}&return_uri=${returnUri}`;
+    await ipc.openExternalUrl(url);
+  };
+
+  return (
+    <div className="hidden @2xl:flex items-center gap-2 ml-2 no-app-region-drag">
+      {email ? (
+        <div
+          className={classNames(
+            "px-2 py-1 rounded text-xs border",
+            isPro
+              ? "bg-indigo-600 text-white border-indigo-500"
+              : "bg-zinc-700 text-white border-zinc-600",
+          )}
+          title={plan ? `Plan: ${plan}` : undefined}
+        >
+          {email}
+        </div>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={startLink}
+        >
+          Link Account
+        </Button>
+      )}
+    </div>
   );
 }

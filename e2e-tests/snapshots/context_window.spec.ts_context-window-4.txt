@@ -11,7 +11,6 @@
   "experiments": {},
   "lastShownReleaseNotesVersion": "[scrubbed]",
   "maxChatTurnsInContext": 5,
-  "enableProLazyEditsMode": true,
   "enableProSmartFilesContextMode": true,
   "selectedTemplateId": "react",
   "selectedChatMode": "build",
